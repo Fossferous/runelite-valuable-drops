@@ -1,8 +1,8 @@
 package com.fossferous.valuableDropsParty;
 
 import com.google.inject.Provides;
+import java.awt.image.BufferedImage;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
@@ -10,11 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
-import net.runelite.client.game.ItemStack;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.NavigationButton;
-import net.runelite.client.util.ImageUtil;
-import java.awt.image.BufferedImage;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -22,21 +17,25 @@ import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.NpcLootReceived;
-import net.runelite.client.events.PartyChanged;
 import net.runelite.client.events.PlayerLootReceived;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStack;
+import net.runelite.client.party.PartyMember;
 import net.runelite.client.party.PartyService;
 import net.runelite.client.party.WSClient;
 import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.util.Text;
-import net.runelite.client.party.events.UserJoin;
+import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
 
 @PluginDescriptor(
         name = "Valuable Drops Party",
         description = "Broadcasts valuable drops to your RuneLite party",
         tags = {"party", "loot", "drops", "broadcast"}
 )
+@PluginDependency(LootTrackerPlugin.class)
 @Slf4j
 public class ValuableDropsPartyPlugin extends Plugin {
 
@@ -72,8 +71,8 @@ public class ValuableDropsPartyPlugin extends Plugin {
     @Override
     protected void startUp() throws Exception {
         panel = new ValuableDropsPartyPanel(itemManager);
-        
-        // Create a basic icon for the toolbar (using a colored square if no image is present)
+
+        // Create a basic icon for the toolbar
         BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
         java.awt.Graphics2D g2d = icon.createGraphics();
         g2d.setColor(java.awt.Color.ORANGE);
@@ -109,10 +108,10 @@ public class ValuableDropsPartyPlugin extends Plugin {
         processLoot(playerLootReceived.getItems(), playerLootReceived.getPlayer().getName());
     }
 
-    // Adding generic LootReceived for Raids, Barrows, Clues (LootTracker plugin publishes this)
+    // Generic LootReceived for Raids, Barrows, Clues (published by LootTrackerPlugin)
     @Subscribe
     public void onLootReceived(final net.runelite.client.plugins.loottracker.LootReceived event) {
-        // Npc and Player loot are already handled above, so skip those to avoid duplicates.
+        // NPC and Player loot are already handled above, so skip those to avoid duplicates.
         if (event.getType() != net.runelite.http.api.loottracker.LootRecordType.NPC &&
             event.getType() != net.runelite.http.api.loottracker.LootRecordType.PLAYER) {
             processLoot(event.getItems(), event.getName());
@@ -170,29 +169,39 @@ public class ValuableDropsPartyPlugin extends Plugin {
 
     private boolean isHighlyValuableUntradeable(String itemName) {
         String lowerName = itemName.toLowerCase();
-        return lowerName.contains("pet") ||
+        // Use word-boundary-aware checks to avoid false positives (e.g. "carpet" matching "pet")
+        return lowerName.startsWith("pet ") ||
+               lowerName.equals("pet") ||
+               lowerName.contains(" pet") ||
                lowerName.contains("champion scroll") ||
                lowerName.contains("mutagen") ||
-               lowerName.contains("fang") || // avernic defender hilt etc? usually tradeable first
                lowerName.contains("jar of") ||
                lowerName.contains("thread of elidinis") ||
                lowerName.contains("breach of the scarab") ||
                lowerName.contains("eye of the corruptor") ||
                lowerName.contains("jewel of the sun") ||
                lowerName.contains("blood shard") ||
-               lowerName.contains("relic") ||
                lowerName.endsWith(" kit") ||
                lowerName.endsWith(" ornament kit") ||
                lowerName.contains("abyssal protector") ||
-               lowerName.contains("tangleroot") ||
-               lowerName.contains("golem") ||
-               lowerName.contains("chinchompa") ||
-               lowerName.contains("beaver") ||
-               lowerName.contains("heron") ||
-               lowerName.contains("rock golem") ||
-               lowerName.contains("rift guardian") ||
-               lowerName.contains("squirrel") ||
-               lowerName.contains("rocky");
+               lowerName.equals("tangleroot") ||
+               lowerName.equals("rock golem") ||
+               lowerName.equals("baby chinchompa") ||
+               lowerName.equals("beaver") ||
+               lowerName.equals("heron") ||
+               lowerName.equals("rift guardian") ||
+               lowerName.equals("giant squirrel") ||
+               lowerName.equals("rocky") ||
+               lowerName.equals("vorki") ||
+               lowerName.equals("noon") ||
+               lowerName.equals("midnight") ||
+               lowerName.equals("olmlet") ||
+               lowerName.equals("lil' zik") ||
+               lowerName.equals("tumeken's guardian") ||
+               lowerName.equals("smolcano") ||
+               lowerName.equals("sraracha") ||
+               lowerName.equals("phoenix") ||
+               lowerName.equals("youngllef");
     }
 
     private Set<Integer> parseCustomIds(String ids) {
@@ -212,28 +221,32 @@ public class ValuableDropsPartyPlugin extends Plugin {
 
     private void broadcastDrop(String itemName, int itemId, int quantity, long value, String source) {
         ValuableDropMessage message = new ValuableDropMessage(itemName, itemId, quantity, value, source);
-        
-        // Add to our own panel if we are the one who dropped it
+
+        // Add to our own panel
         if (client.getLocalPlayer() != null && panel != null) {
             panel.addDrop(message, client.getLocalPlayer().getName());
         }
-        
+
         partyService.send(message);
     }
 
     @Subscribe
     public void onValuableDropMessage(ValuableDropMessage event) {
         // Only process messages from other party members
-        if (partyService.getLocalMember() != null && 
+        if (partyService.getLocalMember() != null &&
             event.getMemberId() == partyService.getLocalMember().getMemberId()) {
             return;
         }
-        
-        String memberName = partyService.getMemberById(event.getMemberId()).getDisplayName();
-        if (memberName == null) {
+
+        // Guard against NPE if the member has left the party
+        PartyMember member = partyService.getMemberById(event.getMemberId());
+        String memberName;
+        if (member != null && member.getDisplayName() != null) {
+            memberName = member.getDisplayName();
+        } else {
             memberName = "Party Member";
         }
-        
+
         // Add to the UI Panel
         if (panel != null) {
             panel.addDrop(event, memberName);
@@ -241,7 +254,7 @@ public class ValuableDropsPartyPlugin extends Plugin {
 
         String valueText = event.getValue() > 0 ? String.format(" (%,d gp)", event.getValue()) : "";
         String qtyText = event.getQuantity() > 1 ? event.getQuantity() + " x " : "";
-        
+
         String chatMessage = new ChatMessageBuilder()
                 .append(ChatColorType.HIGHLIGHT)
                 .append(memberName)
