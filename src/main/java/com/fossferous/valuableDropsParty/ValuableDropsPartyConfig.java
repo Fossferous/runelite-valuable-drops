@@ -1,4 +1,4 @@
-package net.runelite.client.plugins.valuableDropsParty;
+package com.fossferous.valuableDropsParty;
 
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;

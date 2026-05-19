@@ -1,4 +1,4 @@
-package net.runelite.client.plugins.valuableDropsParty;
+package com.fossferous.valuableDropsParty;
 
 import com.google.inject.Provides;
 import java.util.Arrays;

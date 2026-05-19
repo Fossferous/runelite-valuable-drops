@@ -29,7 +29,7 @@ dependencies {
 	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
 }
 
-group = 'net.runelite.client.plugins.valuableDropsParty'
+group = 'com.fossferous.valuableDropsParty'
 version = '1.0-SNAPSHOT'
 sourceCompatibility = '11'
 
