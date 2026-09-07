@@ -12,17 +12,17 @@ import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import net.runelite.api.ItemComposition;
-import net.runelite.api.NPC;
 import net.runelite.api.Player;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.events.NpcLootReceived;
-import net.runelite.client.events.PlayerLootReceived;
+import net.runelite.client.events.PluginChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.party.PartyMember;
@@ -31,15 +31,15 @@ import net.runelite.client.party.WSClient;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.PluginManager;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
-import net.runelite.http.api.loottracker.LootRecordType;
 
 @PluginDescriptor(
         name = "Valuable Drops Party",
-        description = "Broadcasts valuable drops to your RuneLite party",
+        description = "Broadcasts valuable drops to your RuneLite party. Requires the Loot Tracker plugin.",
         tags = {"party", "loot", "drops", "broadcast"}
 )
 @PluginDependency(LootTrackerPlugin.class)
@@ -47,6 +47,16 @@ import net.runelite.http.api.loottracker.LootRecordType;
 public class ValuableDropsPartyPlugin extends Plugin {
 
     private static final String UNKNOWN_SOURCE = "Unknown";
+
+    /**
+     * Untradeable pets that are handed out through a reward chest and therefore show up as loot.
+     * Pets that simply start following you after a kill are never reported as loot by RuneLite.
+     */
+    private static final Set<String> NAMED_PETS = Set.of(
+            "olmlet", "lil' zik", "tumeken's guardian", "abyssal protector",
+            "tangleroot", "rock golem", "baby chinchompa", "beaver", "heron", "rift guardian",
+            "giant squirrel", "rocky", "vorki", "noon", "midnight", "smolcano", "sraracha",
+            "phoenix", "youngllef");
 
     @Inject
     private Client client;
@@ -69,8 +79,16 @@ public class ValuableDropsPartyPlugin extends Plugin {
     @Inject
     private ClientToolbar clientToolbar;
 
+    @Inject
+    private PluginManager pluginManager;
+
+    // Bound in our parent injector because of @PluginDependency(LootTrackerPlugin.class)
+    @Inject
+    private LootTrackerPlugin lootTrackerPlugin;
+
     private ValuableDropsPartyPanel panel;
     private NavigationButton navButton;
+    private boolean warnedLootTrackerDisabled;
 
     @Provides
     ValuableDropsPartyConfig provideConfig(ConfigManager configManager) {
@@ -92,6 +110,11 @@ public class ValuableDropsPartyPlugin extends Plugin {
 
         // Register our custom party message so the party websocket can (de)serialise it.
         wsClient.registerMessage(ValuableDropMessage.class);
+
+        warnedLootTrackerDisabled = false;
+        if (client.getGameState() == GameState.LOGGED_IN) {
+            warnIfLootTrackerDisabled();
+        }
         log.debug("Valuable Drops Party started");
     }
 
@@ -117,26 +140,56 @@ public class ValuableDropsPartyPlugin extends Plugin {
     }
 
     @Subscribe
-    public void onNpcLootReceived(final NpcLootReceived npcLootReceived) {
-        NPC npc = npcLootReceived.getNpc();
-        processLoot(npcLootReceived.getItems(), npc != null ? npc.getName() : null);
+    public void onGameStateChanged(GameStateChanged event) {
+        if (event.getGameState() == GameState.LOGGED_IN) {
+            warnIfLootTrackerDisabled();
+        }
     }
 
     @Subscribe
-    public void onPlayerLootReceived(final PlayerLootReceived playerLootReceived) {
-        Player player = playerLootReceived.getPlayer();
-        processLoot(playerLootReceived.getItems(), player != null ? player.getName() : null);
+    public void onPluginChanged(PluginChanged event) {
+        if (event.getPlugin() != lootTrackerPlugin) {
+            return;
+        }
+
+        if (event.isLoaded()) {
+            // Loot Tracker was turned back on; warn again if it gets turned off later.
+            warnedLootTrackerDisabled = false;
+        } else if (client.getGameState() == GameState.LOGGED_IN) {
+            warnIfLootTrackerDisabled();
+        }
     }
 
     /**
-     * Loot published by the Loot Tracker plugin for raids, barrows, clues, chests, etc.
-     * NPC and player kills are already handled above, so those are skipped to avoid duplicates.
+     * Every drop we see comes from the Loot Tracker's {@link LootReceived} event, so with that
+     * plugin turned off nothing is ever broadcast. Tell the user once rather than failing silently.
+     */
+    private void warnIfLootTrackerDisabled() {
+        if (warnedLootTrackerDisabled || pluginManager.isPluginActive(lootTrackerPlugin)) {
+            return;
+        }
+        warnedLootTrackerDisabled = true;
+
+        String message = new ChatMessageBuilder()
+                .append(ChatColorType.HIGHLIGHT)
+                .append("Valuable Drops Party: ")
+                .append(ChatColorType.NORMAL)
+                .append("the Loot Tracker plugin is disabled, so no drops can be detected. Enable Loot Tracker to use this plugin.")
+                .build();
+
+        chatMessageManager.queue(QueuedMessage.builder()
+                .type(ChatMessageType.CONSOLE)
+                .runeLiteFormattedMessage(message)
+                .build());
+    }
+
+    /**
+     * Loot reported by the Loot Tracker plugin: NPC kills (server-reported), PvP kills, raids,
+     * Barrows, clue caskets, chests and so on. This is the single source of drops, which keeps us in
+     * sync with what the Loot Tracker panel shows and avoids double-counting kills.
      */
     @Subscribe
     public void onLootReceived(final LootReceived event) {
-        if (event.getType() == LootRecordType.NPC || event.getType() == LootRecordType.PLAYER) {
-            return;
-        }
         processLoot(event.getItems(), event.getName());
     }
 
@@ -168,9 +221,8 @@ public class ValuableDropsPartyPlugin extends Plugin {
             boolean shouldBroadcast = customIds.contains(itemId)
                     || maxValue >= minimumValue
                     || (config.broadcastZeroValueDrops()
-                        && maxValue == 0
                         && !itemComp.isTradeable()
-                        && isHighlyValuableUntradeable(itemName));
+                        && isNotableUntradeable(itemName));
 
             if (shouldBroadcast) {
                 broadcastDrop(itemName, itemId, quantity, maxValue, source);
@@ -178,41 +230,20 @@ public class ValuableDropsPartyPlugin extends Plugin {
         }
     }
 
-    private boolean isHighlyValuableUntradeable(String itemName) {
+    /**
+     * Untradeable drops worth announcing even though they never reach the GP threshold.
+     * Only untradeable items get here; tradeable uniques (boss jars, ornament kits, raid weapons)
+     * are covered by the minimum value threshold instead.
+     */
+    private static boolean isNotableUntradeable(String itemName) {
         String lowerName = itemName.toLowerCase();
-        // Use word-boundary-aware checks to avoid false positives (e.g. "carpet" matching "pet")
-        return lowerName.startsWith("pet ") ||
-               lowerName.equals("pet") ||
-               lowerName.contains(" pet") ||
-               lowerName.contains("champion scroll") ||
-               lowerName.contains("mutagen") ||
-               lowerName.contains("jar of") ||
-               lowerName.contains("thread of elidinis") ||
-               lowerName.contains("breach of the scarab") ||
-               lowerName.contains("eye of the corruptor") ||
-               lowerName.contains("jewel of the sun") ||
-               lowerName.contains("blood shard") ||
-               lowerName.endsWith(" kit") ||
-               lowerName.endsWith(" ornament kit") ||
-               lowerName.contains("abyssal protector") ||
-               lowerName.equals("tangleroot") ||
-               lowerName.equals("rock golem") ||
-               lowerName.equals("baby chinchompa") ||
-               lowerName.equals("beaver") ||
-               lowerName.equals("heron") ||
-               lowerName.equals("rift guardian") ||
-               lowerName.equals("giant squirrel") ||
-               lowerName.equals("rocky") ||
-               lowerName.equals("vorki") ||
-               lowerName.equals("noon") ||
-               lowerName.equals("midnight") ||
-               lowerName.equals("olmlet") ||
-               lowerName.equals("lil' zik") ||
-               lowerName.equals("tumeken's guardian") ||
-               lowerName.equals("smolcano") ||
-               lowerName.equals("sraracha") ||
-               lowerName.equals("phoenix") ||
-               lowerName.equals("youngllef");
+        // Word-boundary-aware pet checks avoid false positives such as "carpet" matching "pet"
+        return lowerName.startsWith("pet ")
+                || lowerName.equals("pet")
+                || lowerName.contains(" pet")
+                || lowerName.contains("champion scroll")
+                || lowerName.contains("mutagen")
+                || NAMED_PETS.contains(lowerName);
     }
 
     private static Set<Integer> parseCustomIds(String ids) {
@@ -237,7 +268,8 @@ public class ValuableDropsPartyPlugin extends Plugin {
     private void broadcastDrop(String itemName, int itemId, int quantity, long value, String source) {
         ValuableDropMessage message = new ValuableDropMessage(itemName, itemId, quantity, value, source);
 
-        // Show our own drop in our panel; the party server does not echo it back to us.
+        // Add our own drop to our panel here. The party server echoes the message back to us, but
+        // onValuableDropMessage ignores messages from the local member, so it is not added twice.
         Player localPlayer = client.getLocalPlayer();
         if (localPlayer != null && panel != null) {
             String localName = localPlayer.getName() != null ? localPlayer.getName() : "You";

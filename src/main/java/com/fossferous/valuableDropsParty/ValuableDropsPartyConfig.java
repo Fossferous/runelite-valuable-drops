@@ -35,8 +35,8 @@ public interface ValuableDropsPartyConfig extends Config {
 
     @ConfigItem(
             keyName = "broadcastZeroValueDrops",
-            name = "Broadcast 0-Value Drops",
-            description = "Broadcasts untradeable highly valuable items (e.g., pets, champion scrolls, raid uniques)",
+            name = "Broadcast Untradeables",
+            description = "Also broadcasts notable untradeable drops that never reach the minimum value (champion scrolls, mutagens, raid pets)",
             section = overridesSection,
             position = 2
     )

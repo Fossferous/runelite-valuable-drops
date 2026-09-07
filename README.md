@@ -1,8 +1,9 @@
 # Valuable Drops Party
 
 A [RuneLite](https://runelite.net) plugin that broadcasts valuable drops to everyone in your RuneLite party.
-When you or a party member receives a drop worth more than a configurable threshold, every party member
-running this plugin sees a chat message, and the drop is added to a session history panel in the sidebar.
+When a party member receives a drop worth more than a configurable threshold, the other party members
+running this plugin see a chat message, and the drop is added to everyone's session history panel in the
+sidebar, including your own.
 
 ## Features
 
@@ -11,16 +12,24 @@ running this plugin sees a chat message, and the drop is added to a session hist
   with item icons, values and who got them.
 - **Configurable threshold:** minimum GP value to broadcast (default 1,000,000 GP). The higher of the Grand
   Exchange value and the High Alchemy value is used.
-- **Untradeable overrides:** optionally broadcast valuable 0 GP untradeables such as champion scrolls,
-  mutagens, jars, raid uniques and ornament kits.
+- **Untradeable overrides:** optionally broadcast notable untradeable drops that never reach the threshold,
+  such as champion scrolls, mutagens and raid pets. Tradeable items such as boss jars, ornament kits and
+  raid weapons are broadcast when their value reaches the threshold.
 - **Custom item IDs:** a comma-separated list of item IDs to always broadcast, regardless of value.
 
-Drops are detected from NPC kills, PvP kills and Loot Tracker events (raids, Barrows, clue caskets, chests
-and so on). Only party members who also have this plugin installed will receive the broadcasts.
+Drops are taken from RuneLite's built-in **Loot Tracker** plugin, so anything the Loot Tracker records is
+covered: NPC kills, PvP kills, raids, Barrows, clue caskets, chests and so on. The Loot Tracker plugin must
+be enabled; if it is off, this plugin tells you so in chat when you log in. Pets that start following you
+after a kill are not reported as loot by RuneLite, so only pets handed out through a reward chest
+(for example raid pets) can be broadcast.
+
+Only party members who also have this plugin installed will receive the broadcasts.
 
 ## Requirements
 
-- Java Development Kit 11 or newer. [Eclipse Temurin](https://adoptium.net/temurin/releases/) is recommended.
+- A Java Development Kit, version 11, 17 or 21. [Eclipse Temurin](https://adoptium.net/temurin/releases/)
+  is recommended; pick one of those versions rather than the newest release, because the Gradle and Lombok
+  versions pinned by this project do not run on JDK 22 or newer.
 - An internet connection: the build downloads the RuneLite client from `repo.runelite.net`.
 
 ## Running the plugin in a development client
@@ -40,8 +49,11 @@ In IntelliJ IDEA you can also open `build.gradle` and run the `run` task from th
 If you log in with a Jagex account, follow the
 [Using Jagex Accounts](https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts) guide first.
 
-Once the client is up, enable **Valuable Drops Party** in the plugin configuration sidebar and join a party
-(Party plugin, or `::party` in chat). Get a drop worth more than your threshold and it will be broadcast.
+Once the client is up:
+
+1. Enable **Valuable Drops Party** in the plugin configuration sidebar. Make sure **Loot Tracker** is enabled too.
+2. Open the built-in **Party** plugin's sidebar panel and create a party or join one with its passphrase.
+3. Get a drop worth more than your threshold and it will be broadcast to the party.
 
 ## Building a jar
 
@@ -68,7 +80,7 @@ to publish, then open a pull request there.
 | Setting | Default | Description |
 | --- | --- | --- |
 | Minimum Value | 1,000,000 | Minimum GP value of a drop to broadcast |
-| Broadcast 0-Value Drops | On | Broadcast valuable untradeables that have no GP value |
+| Broadcast Untradeables | On | Also broadcast notable untradeable drops that never reach the minimum value |
 | Custom Item IDs | empty | Comma-separated item IDs to always broadcast |
 
 ## License
