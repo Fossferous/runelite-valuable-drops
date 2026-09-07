@@ -1,8 +1,11 @@
 package com.fossferous.valuableDropsParty;
 
 import com.google.inject.Provides;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
@@ -10,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.NPC;
+import net.runelite.api.Player;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -26,9 +31,11 @@ import net.runelite.client.party.WSClient;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.http.api.loottracker.LootRecordType;
 
 @PluginDescriptor(
         name = "Valuable Drops Party",
@@ -38,6 +45,8 @@ import net.runelite.client.ui.NavigationButton;
 @PluginDependency(LootTrackerPlugin.class)
 @Slf4j
 public class ValuableDropsPartyPlugin extends Plugin {
+
+    private static final String UNKNOWN_SOURCE = "Unknown";
 
     @Inject
     private Client client;
@@ -72,56 +81,73 @@ public class ValuableDropsPartyPlugin extends Plugin {
     protected void startUp() throws Exception {
         panel = new ValuableDropsPartyPanel(itemManager);
 
-        // Create a basic icon for the toolbar
-        BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-        java.awt.Graphics2D g2d = icon.createGraphics();
-        g2d.setColor(java.awt.Color.ORANGE);
-        g2d.fillRect(0, 0, 16, 16);
-        g2d.dispose();
-
         navButton = NavigationButton.builder()
                 .tooltip("Valuable Drops Party")
-                .icon(icon)
+                .icon(createIcon())
                 .priority(5)
                 .panel(panel)
                 .build();
 
         clientToolbar.addNavigation(navButton);
+
+        // Register our custom party message so the party websocket can (de)serialise it.
         wsClient.registerMessage(ValuableDropMessage.class);
-        log.info("Valuable Drops Party started!");
+        log.debug("Valuable Drops Party started");
     }
 
     @Override
     protected void shutDown() throws Exception {
-        clientToolbar.removeNavigation(navButton);
         wsClient.unregisterMessage(ValuableDropMessage.class);
-        log.info("Valuable Drops Party stopped!");
+
+        if (navButton != null) {
+            clientToolbar.removeNavigation(navButton);
+        }
+        navButton = null;
+        panel = null;
+        log.debug("Valuable Drops Party stopped");
+    }
+
+    private static BufferedImage createIcon() {
+        BufferedImage icon = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2d = icon.createGraphics();
+        g2d.setColor(Color.ORANGE);
+        g2d.fillRect(0, 0, 16, 16);
+        g2d.dispose();
+        return icon;
     }
 
     @Subscribe
     public void onNpcLootReceived(final NpcLootReceived npcLootReceived) {
-        processLoot(npcLootReceived.getItems(), npcLootReceived.getNpc().getName());
+        NPC npc = npcLootReceived.getNpc();
+        processLoot(npcLootReceived.getItems(), npc != null ? npc.getName() : null);
     }
 
     @Subscribe
     public void onPlayerLootReceived(final PlayerLootReceived playerLootReceived) {
-        processLoot(playerLootReceived.getItems(), playerLootReceived.getPlayer().getName());
+        Player player = playerLootReceived.getPlayer();
+        processLoot(playerLootReceived.getItems(), player != null ? player.getName() : null);
     }
 
-    // Generic LootReceived for Raids, Barrows, Clues (published by LootTrackerPlugin)
+    /**
+     * Loot published by the Loot Tracker plugin for raids, barrows, clues, chests, etc.
+     * NPC and player kills are already handled above, so those are skipped to avoid duplicates.
+     */
     @Subscribe
-    public void onLootReceived(final net.runelite.client.plugins.loottracker.LootReceived event) {
-        // NPC and Player loot are already handled above, so skip those to avoid duplicates.
-        if (event.getType() != net.runelite.http.api.loottracker.LootRecordType.NPC &&
-            event.getType() != net.runelite.http.api.loottracker.LootRecordType.PLAYER) {
-            processLoot(event.getItems(), event.getName());
-        }
-    }
-
-    private void processLoot(Iterable<ItemStack> items, String source) {
-        if (!partyService.isInParty()) {
+    public void onLootReceived(final LootReceived event) {
+        if (event.getType() == LootRecordType.NPC || event.getType() == LootRecordType.PLAYER) {
             return;
         }
+        processLoot(event.getItems(), event.getName());
+    }
+
+    private void processLoot(Collection<ItemStack> items, String sourceName) {
+        if (items == null || items.isEmpty() || !partyService.isInParty()) {
+            return;
+        }
+
+        String source = (sourceName == null || sourceName.isEmpty()) ? UNKNOWN_SOURCE : sourceName;
+        Set<Integer> customIds = parseCustomIds(config.customItemIds());
+        long minimumValue = config.minimumValue();
 
         for (ItemStack itemStack : items) {
             int itemId = itemStack.getId();
@@ -130,7 +156,7 @@ public class ValuableDropsPartyPlugin extends Plugin {
             ItemComposition itemComp = itemManager.getItemComposition(itemId);
             String itemName = itemComp.getName();
 
-            // Ignore empty items
+            // Ignore empty/placeholder items
             if (itemName == null || itemName.isEmpty() || itemName.equals("null")) {
                 continue;
             }
@@ -139,27 +165,12 @@ public class ValuableDropsPartyPlugin extends Plugin {
             long totalHaValue = (long) itemComp.getHaPrice() * quantity;
             long maxValue = Math.max(totalGeValue, totalHaValue);
 
-            boolean shouldBroadcast = false;
-
-            // 1. Check Custom ID overrides
-            if (!config.customItemIds().isEmpty()) {
-                Set<Integer> customIds = parseCustomIds(config.customItemIds());
-                if (customIds.contains(itemId)) {
-                    shouldBroadcast = true;
-                }
-            }
-
-            // 2. Check GP Threshold
-            if (!shouldBroadcast && maxValue >= config.minimumValue()) {
-                shouldBroadcast = true;
-            }
-
-            // 3. Check 0-Value highly valuable items (Pets, Champion scrolls, etc.)
-            if (!shouldBroadcast && config.broadcastZeroValueDrops() && maxValue == 0 && !itemComp.isTradeable()) {
-                if (isHighlyValuableUntradeable(itemName)) {
-                    shouldBroadcast = true;
-                }
-            }
+            boolean shouldBroadcast = customIds.contains(itemId)
+                    || maxValue >= minimumValue
+                    || (config.broadcastZeroValueDrops()
+                        && maxValue == 0
+                        && !itemComp.isTradeable()
+                        && isHighlyValuableUntradeable(itemName));
 
             if (shouldBroadcast) {
                 broadcastDrop(itemName, itemId, quantity, maxValue, source);
@@ -204,7 +215,11 @@ public class ValuableDropsPartyPlugin extends Plugin {
                lowerName.equals("youngllef");
     }
 
-    private Set<Integer> parseCustomIds(String ids) {
+    private static Set<Integer> parseCustomIds(String ids) {
+        if (ids == null || ids.trim().isEmpty()) {
+            return Set.of();
+        }
+
         return Arrays.stream(ids.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
@@ -215,16 +230,18 @@ public class ValuableDropsPartyPlugin extends Plugin {
                         return -1;
                     }
                 })
-                .filter(id -> id != -1)
+                .filter(id -> id >= 0)
                 .collect(Collectors.toSet());
     }
 
     private void broadcastDrop(String itemName, int itemId, int quantity, long value, String source) {
         ValuableDropMessage message = new ValuableDropMessage(itemName, itemId, quantity, value, source);
 
-        // Add to our own panel
-        if (client.getLocalPlayer() != null && panel != null) {
-            panel.addDrop(message, client.getLocalPlayer().getName());
+        // Show our own drop in our panel; the party server does not echo it back to us.
+        Player localPlayer = client.getLocalPlayer();
+        if (localPlayer != null && panel != null) {
+            String localName = localPlayer.getName() != null ? localPlayer.getName() : "You";
+            panel.addDrop(message, localName);
         }
 
         partyService.send(message);
@@ -233,25 +250,23 @@ public class ValuableDropsPartyPlugin extends Plugin {
     @Subscribe
     public void onValuableDropMessage(ValuableDropMessage event) {
         // Only process messages from other party members
-        if (partyService.getLocalMember() != null &&
-            event.getMemberId() == partyService.getLocalMember().getMemberId()) {
+        PartyMember localMember = partyService.getLocalMember();
+        if (localMember != null && event.getMemberId() == localMember.getMemberId()) {
             return;
         }
 
-        // Guard against NPE if the member has left the party
+        // The member may have already left the party by the time we see the message
         PartyMember member = partyService.getMemberById(event.getMemberId());
-        String memberName;
-        if (member != null && member.getDisplayName() != null) {
-            memberName = member.getDisplayName();
-        } else {
-            memberName = "Party Member";
-        }
+        String memberName = (member != null && member.getDisplayName() != null)
+                ? member.getDisplayName()
+                : "Party member";
 
-        // Add to the UI Panel
         if (panel != null) {
             panel.addDrop(event, memberName);
         }
 
+        String itemName = event.getItemName() != null ? event.getItemName() : "Unknown item";
+        String source = event.getSource() != null ? event.getSource() : UNKNOWN_SOURCE;
         String valueText = event.getValue() > 0 ? String.format(" (%,d gp)", event.getValue()) : "";
         String qtyText = event.getQuantity() > 1 ? event.getQuantity() + " x " : "";
 
@@ -261,9 +276,9 @@ public class ValuableDropsPartyPlugin extends Plugin {
                 .append(ChatColorType.NORMAL)
                 .append(" received a drop: ")
                 .append(ChatColorType.HIGHLIGHT)
-                .append(qtyText + event.getItemName())
+                .append(qtyText + itemName)
                 .append(ChatColorType.NORMAL)
-                .append(valueText + " from " + event.getSource() + ".")
+                .append(valueText + " from " + source + ".")
                 .build();
 
         chatMessageManager.queue(QueuedMessage.builder()

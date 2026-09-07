@@ -1,43 +1,76 @@
-# Valuable Drops Party - RuneLite Plugin
+# Valuable Drops Party
 
-This plugin broadcasts valuable drops to players connected via RuneLite's native `PartyService`. It hooks into `LootReceived` events, calculates item values via the `ItemManager`, and transmits a custom `PartyMemberMessage` payload over the WebSocket.
+A [RuneLite](https://runelite.net) plugin that broadcasts valuable drops to everyone in your RuneLite party.
+When you or a party member receives a drop worth more than a configurable threshold, every party member
+running this plugin sees a chat message, and the drop is added to a session history panel in the sidebar.
 
 ## Features
 
-- **Party Broadcasts:** Automatically notifies your party members in game chat when you receive a valuable drop.
-- **Configurable Thresholds:** Set a minimum GP threshold for broadcast (default: 1,000,000 GP). Uses both GE value and High Alch value to determine total drop value.
-- **Zero-Value Untradeable Overrides:** Contains a custom toggle to automatically broadcast untradeable but highly sought-after 0-GP items such as:
-  - Pets
-  - Champion Scrolls
-  - Mutagens
-  - Raid Uniques and Ornament Kits
-- **Custom Item IDs:** Allows you to input a comma-separated list of item IDs to always broadcast, regardless of their GP value.
+- **Party broadcasts:** notifies your party in game chat when someone receives a valuable drop.
+- **Session history panel:** a sidebar panel listing the valuable drops the party has received this session,
+  with item icons, values and who got them.
+- **Configurable threshold:** minimum GP value to broadcast (default 1,000,000 GP). The higher of the Grand
+  Exchange value and the High Alchemy value is used.
+- **Untradeable overrides:** optionally broadcast valuable 0 GP untradeables such as champion scrolls,
+  mutagens, jars, raid uniques and ornament kits.
+- **Custom item IDs:** a comma-separated list of item IDs to always broadcast, regardless of value.
 
-## How to Sideload and Test
+Drops are detected from NPC kills, PvP kills and Loot Tracker events (raids, Barrows, clue caskets, chests
+and so on). Only party members who also have this plugin installed will receive the broadcasts.
 
-To test this plugin locally on your developer RuneLite client, follow these steps:
+## Requirements
 
-1. **Build the Plugin:**
-   In the root of this project directory (`runelite-valuable-drops-plugin`), run the Gradle build command.
-   ```bash
-   ./gradlew build
-   ```
-   *This has already been completed, and the compiled `.jar` is located in `build/libs/`.*
+- Java Development Kit 11 or newer. [Eclipse Temurin](https://adoptium.net/temurin/releases/) is recommended.
+- An internet connection: the build downloads the RuneLite client from `repo.runelite.net`.
 
-2. **Locate your local RuneLite Plugin Directory:**
-   By default, RuneLite allows you to sideload external plugins from its configuration directory.
-   - **Windows:** `%userprofile%\.runelite\plugins\`
-   - **macOS:** `$HOME/.runelite/plugins/`
-   - **Linux:** `$HOME/.runelite/plugins/`
+## Running the plugin in a development client
 
-3. **Copy the `.jar` File:**
-   Copy the `.jar` file from `build/libs/valuable-drops-party-plugin-1.0-SNAPSHOT.jar` into the `.runelite/plugins/` directory. Create the `plugins` folder if it doesn't already exist.
+The easiest way to try the plugin is the Gradle `run` task, which starts a RuneLite developer client with
+this plugin already loaded:
 
-4. **Launch RuneLite (Developer Mode):**
-   Run your RuneLite client with developer mode enabled (using the `--developer-mode` flag or running it via your IDE). 
+```bash
+# macOS / Linux
+./gradlew run
 
-5. **Enable the Plugin:**
-   Open the RuneLite configuration sidebar, search for **"Valuable Drops Party"**, and turn it on. Configure your minimum thresholds and custom item IDs.
+# Windows
+gradlew.bat run
+```
 
-6. **Test in a Party:**
-   Join a RuneLite party with your friends. When you receive a valuable drop (or when they do), you will see a color-coded broadcast in your game chat!
+In IntelliJ IDEA you can also open `build.gradle` and run the `run` task from the Gradle tool window.
+If you log in with a Jagex account, follow the
+[Using Jagex Accounts](https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts) guide first.
+
+Once the client is up, enable **Valuable Drops Party** in the plugin configuration sidebar and join a party
+(Party plugin, or `::party` in chat). Get a drop worth more than your threshold and it will be broadcast.
+
+## Building a jar
+
+```bash
+./gradlew build
+```
+
+The plugin jar is written to `build/libs/valuable-drops-party.jar`.
+
+Note that RuneLite only sideloads jars when it is started in developer mode, which is not available through
+the normal RuneLite launcher. If you run the client from source with `--developer-mode`, place the jar in
+`~/.runelite/sideloaded-plugins/` and it will be picked up on the next start. For everyday use the plugin
+must be installed from the Plugin Hub.
+
+## Publishing to the Plugin Hub
+
+The repository follows the [Plugin Hub](https://github.com/runelite/plugin-hub) layout
+(`runelite-plugin.properties`, BSD 2-Clause `LICENSE`, `build=standard`). To publish, fork the plugin-hub
+repository and add a `plugins/valuable-drops-party` file containing this repository's URL and the commit hash
+to publish, then open a pull request there.
+
+## Configuration
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Minimum Value | 1,000,000 | Minimum GP value of a drop to broadcast |
+| Broadcast 0-Value Drops | On | Broadcast valuable untradeables that have no GP value |
+| Custom Item IDs | empty | Comma-separated item IDs to always broadcast |
+
+## License
+
+BSD 2-Clause. See [LICENSE](LICENSE).
