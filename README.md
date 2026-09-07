@@ -1,7 +1,7 @@
 # Valuable Drops Party
 
 A [RuneLite](https://runelite.net) plugin that broadcasts valuable drops to everyone in your RuneLite party.
-When a party member receives a drop worth more than a configurable threshold, the other party members
+When a party member receives a drop worth at least a configurable threshold, the other party members
 running this plugin see a chat message, and the drop is added to everyone's session history panel in the
 sidebar, including your own.
 
@@ -52,8 +52,9 @@ If you log in with a Jagex account, follow the
 Once the client is up:
 
 1. Enable **Valuable Drops Party** in the plugin configuration sidebar. Make sure **Loot Tracker** is enabled too.
-2. Open the built-in **Party** plugin's sidebar panel and create a party or join one with its passphrase.
-3. Get a drop worth more than your threshold and it will be broadcast to the party.
+2. Enable the built-in **Party** plugin (it is off by default), open its sidebar panel and click **Create party**,
+   or **Join party** and enter the party's passphrase.
+3. Get a drop worth at least your threshold and it will be broadcast to the party.
 
 ## Building a jar
 

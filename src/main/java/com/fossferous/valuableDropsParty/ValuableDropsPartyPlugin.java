@@ -49,14 +49,15 @@ public class ValuableDropsPartyPlugin extends Plugin {
     private static final String UNKNOWN_SOURCE = "Unknown";
 
     /**
-     * Untradeable pets that are handed out through a reward chest and therefore show up as loot.
-     * Pets that simply start following you after a kill are never reported as loot by RuneLite.
+     * Untradeable pets whose names do not contain "pet" and that the Loot Tracker can record as
+     * loot, because they are handed out through a reward chest or land in the inventory of a player
+     * who already has a follower out. Pets that simply start following you after a kill are never
+     * reported as loot by RuneLite, so they cannot be broadcast.
      */
     private static final Set<String> NAMED_PETS = Set.of(
-            "olmlet", "lil' zik", "tumeken's guardian", "abyssal protector",
-            "tangleroot", "rock golem", "baby chinchompa", "beaver", "heron", "rift guardian",
-            "giant squirrel", "rocky", "vorki", "noon", "midnight", "smolcano", "sraracha",
-            "phoenix", "youngllef");
+            "olmlet", "lil' zik", "tumeken's guardian", "smol heredit",
+            "abyssal protector", "phoenix", "tiny tempor", "herbi",
+            "vorki", "noon", "midnight", "smolcano", "sraracha");
 
     @Inject
     private Client client;
